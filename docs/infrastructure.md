@@ -2,6 +2,7 @@
 
 The local infrastructure consists of:
 
+- the Parley FastAPI backend;
 - one PostgreSQL cluster with isolated `parley` and `authentik` databases and roles;
 - an Authentik server;
 - an Authentik background worker.
