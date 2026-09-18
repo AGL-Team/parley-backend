@@ -23,6 +23,10 @@ services:
       args:
         PYTHON_VERSION: ${PYTHON_VERSION:-3.13-slim}
     restart: unless-stopped
+    environment:
+      AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:-http://localhost:9000/application/o/parley/}
+      AUTHENTIK_JWKS_URL: ${AUTHENTIK_JWKS_URL:-http://authentik-server:9000/application/o/parley/jwks/}
+      AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:?Set AUTHENTIK_CLIENT_ID in .env}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     networks:
