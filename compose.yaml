@@ -1,0 +1,89 @@
+name: parley
+
+x-authentik-build: &authentik-build
+  context: .
+  dockerfile: docker/authentik/Dockerfile
+  args:
+    AUTHENTIK_VERSION: ${AUTHENTIK_VERSION:-2026.8.3}
+
+x-authentik-environment: &authentik-environment
+  AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?Set AUTHENTIK_SECRET_KEY in .env}
+  AUTHENTIK_POSTGRESQL__HOST: postgres
+  AUTHENTIK_POSTGRESQL__PORT: 5432
+  AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_DB_NAME:-authentik}
+  AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_DB_USER:-authentik}
+  AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD:?Set AUTHENTIK_DB_PASSWORD in .env}
+  AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING_ENABLED:-false}
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+      args:
+        POSTGRES_VERSION: ${POSTGRES_VERSION:-17-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_ADMIN_DB:-postgres}
+      PARLEY_DB_NAME: ${PARLEY_DB_NAME:-parley}
+      PARLEY_DB_USER: ${PARLEY_DB_USER:-parley}
+      PARLEY_DB_PASSWORD: ${PARLEY_DB_PASSWORD:?Set PARLEY_DB_PASSWORD in .env}
+      AUTHENTIK_DB_NAME: ${AUTHENTIK_DB_NAME:-authentik}
+      AUTHENTIK_DB_USER: ${AUTHENTIK_DB_USER:-authentik}
+      AUTHENTIK_DB_PASSWORD: ${AUTHENTIK_DB_PASSWORD:?Set AUTHENTIK_DB_PASSWORD in .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - parley_internal
+
+  authentik-server:
+    build: *authentik-build
+    restart: unless-stopped
+    command: server
+    environment: *authentik-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${AUTHENTIK_HTTP_PORT:-9000}:9000"
+      - "${AUTHENTIK_HTTPS_PORT:-9443}:9443"
+    volumes:
+      - authentik_media:/media
+      - ./infra/authentik/templates:/templates:ro
+    networks:
+      - parley_internal
+
+  authentik-worker:
+    build: *authentik-build
+    restart: unless-stopped
+    command: worker
+    environment: *authentik-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - authentik_media:/media
+      - authentik_certs:/certs
+      - ./infra/authentik/templates:/templates:ro
+      - ./infra/authentik/blueprints:/blueprints/custom:ro
+    networks:
+      - parley_internal
+
+volumes:
+  postgres_data:
+  authentik_media:
+  authentik_certs:
+
+networks:
+  parley_internal:
+    driver: bridge

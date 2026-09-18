@@ -1,0 +1,2 @@
+ARG AUTHENTIK_VERSION=2026.8.3
+FROM ghcr.io/goauthentik/server:${AUTHENTIK_VERSION}
