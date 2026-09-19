@@ -7,13 +7,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from parley.bootstrap.dependencies import get_settings
 from parley.bootstrap.settings import Settings
-from parley.modules.auth.application.identity import map_authentik_user
+from parley.modules.auth.application.users import resolve_user
 from parley.modules.auth.infrastructure.authentik import (
     AuthentikAuthenticationError,
     AuthentikClient,
     AuthentikError,
     AuthentikRegistrationError,
     AuthentikUnavailableError,
+)
+from parley.modules.auth.infrastructure.postgres import (
+    PostgresUserRepository,
+    UserRepositoryError,
 )
 from parley.modules.auth.presentation.http.schemas import (
     LoginRequest,
@@ -29,14 +33,27 @@ def _client(settings: Settings) -> AuthentikClient:
     return AuthentikClient(api_url=str(settings.authentik_api_url))
 
 
-def _user_response(
+def _repository(settings: Settings) -> PostgresUserRepository:
+    return PostgresUserRepository(
+        host=settings.parley_db_host,
+        port=settings.parley_db_port,
+        database=settings.parley_db_name,
+        user=settings.parley_db_user,
+        password=settings.parley_db_password.get_secret_value(),
+    )
+
+
+def _resolve_user_response(
     *,
     settings: Settings,
     authentik_user: dict[str, Any],
+    registration_name: str | None = None,
 ) -> UserResponse:
-    user, _identity = map_authentik_user(
+    user = resolve_user(
         issuer=str(settings.authentik_issuer),
         authentik_user=authentik_user,
+        repository=_repository(settings),
+        registration_name=registration_name,
     )
     return UserResponse.from_domain(user)
 
@@ -63,7 +80,7 @@ def _set_session_cookie(
     responses={
         status.HTTP_401_UNAUTHORIZED: {"description": "Invalid credentials"},
         status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "description": "Authentik unavailable"
+            "description": "Authentication or user storage unavailable"
         },
     },
 )
@@ -77,7 +94,7 @@ async def login(
     try:
         session, authentik_user = await asyncio.to_thread(
             _client(settings).login,
-            username=credentials.username,
+            username=credentials.login,
             password=credentials.password,
         )
     except AuthentikUnavailableError as error:
@@ -88,11 +105,23 @@ async def login(
     except AuthentikError as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
+            detail="Invalid tag, email, or password",
+        ) from error
+
+    try:
+        user = await asyncio.to_thread(
+            _resolve_user_response,
+            settings=settings,
+            authentik_user=authentik_user,
+        )
+    except UserRepositoryError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="User storage is unavailable",
         ) from error
 
     _set_session_cookie(response=response, settings=settings, session=session)
-    return _user_response(settings=settings, authentik_user=authentik_user)
+    return user
 
 
 @router.post(
@@ -102,7 +131,7 @@ async def login(
     responses={
         status.HTTP_409_CONFLICT: {"description": "Registration rejected"},
         status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "description": "Authentik unavailable"
+            "description": "Authentication or user storage unavailable"
         },
     },
 )
@@ -116,9 +145,8 @@ async def register(
     try:
         session, authentik_user = await asyncio.to_thread(
             _client(settings).register,
-            username=registration.username,
+            username=registration.tag[1:],
             password=registration.password,
-            name=registration.name,
             email=registration.email,
         )
     except AuthentikUnavailableError as error:
@@ -129,11 +157,24 @@ async def register(
     except (AuthentikRegistrationError, AuthentikAuthenticationError) as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Username or email is already used or invalid",
+            detail="Tag or email is already used or invalid",
+        ) from error
+
+    try:
+        user = await asyncio.to_thread(
+            _resolve_user_response,
+            settings=settings,
+            authentik_user=authentik_user,
+            registration_name=registration.name,
+        )
+    except UserRepositoryError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="User storage is unavailable",
         ) from error
 
     _set_session_cookie(response=response, settings=settings, session=session)
-    return _user_response(settings=settings, authentik_user=authentik_user)
+    return user
 
 
 @router.get(
@@ -142,7 +183,7 @@ async def register(
     responses={
         status.HTTP_401_UNAUTHORIZED: {"description": "Not authenticated"},
         status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "description": "Authentik unavailable"
+            "description": "Authentication or user storage unavailable"
         },
     },
 )
@@ -175,4 +216,14 @@ async def get_current_user(
             detail="Not authenticated",
         ) from error
 
-    return _user_response(settings=settings, authentik_user=authentik_user)
+    try:
+        return await asyncio.to_thread(
+            _resolve_user_response,
+            settings=settings,
+            authentik_user=authentik_user,
+        )
+    except UserRepositoryError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="User storage is unavailable",
+        ) from error

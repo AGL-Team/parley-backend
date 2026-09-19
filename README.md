@@ -14,10 +14,14 @@ See `docs/infrastructure.md` for the service layout and Authentik setup URL.
 
 The authentication module exposes a headless Authentik integration:
 
-- `POST /api/v1/auth/register` creates and signs in a user;
-- `POST /api/v1/auth/login` signs in an existing user;
+- `POST /api/v1/auth/register` creates and signs in a user with a unique `@tag`;
+- `POST /api/v1/auth/login` signs in an existing user by `@tag` or email;
 - `GET /api/v1/auth/me` returns the current Parley user.
 
 The backend executes the configured Authentik flows and stores the resulting
 Authentik session in an HttpOnly cookie. Passwords are forwarded to Authentik
 for verification and are never stored by the backend.
+
+Authentik owns the unique username behind the public `@tag`, email, password,
+and session. Parley stores the domain user's `name` in its own `users` table and
+links it to Authentik through `external_identities`.

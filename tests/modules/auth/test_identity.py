@@ -22,6 +22,7 @@ class IdentityMappingTests(TestCase):
         self.assertEqual(identity.subject, "authentik-subject")
         self.assertEqual(identity.user_id, user.id)
         self.assertNotEqual(str(user.id), identity.subject)
+        self.assertEqual(user.tag, "@alice")
         self.assertEqual(user.role, UserRole.USER)
 
     def test_maps_admin_group_to_admin_role(self) -> None:

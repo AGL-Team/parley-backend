@@ -31,6 +31,14 @@ services:
       AUTH_SESSION_COOKIE_NAME: ${AUTH_SESSION_COOKIE_NAME:-parley_session}
       AUTH_SESSION_COOKIE_SECURE: ${AUTH_SESSION_COOKIE_SECURE:-false}
       AUTH_SESSION_COOKIE_SAMESITE: ${AUTH_SESSION_COOKIE_SAMESITE:-lax}
+      PARLEY_DB_HOST: postgres
+      PARLEY_DB_PORT: 5432
+      PARLEY_DB_NAME: ${PARLEY_DB_NAME:-parley}
+      PARLEY_DB_USER: ${PARLEY_DB_USER:-parley}
+      PARLEY_DB_PASSWORD: ${PARLEY_DB_PASSWORD:?Set PARLEY_DB_PASSWORD in .env}
+    depends_on:
+      postgres-migrations:
+        condition: service_completed_successfully
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     networks:
@@ -74,10 +82,13 @@ services:
       POSTGRES_ADMIN_USER: ${POSTGRES_ADMIN_USER:-postgres}
       POSTGRES_ADMIN_DB: ${POSTGRES_ADMIN_DB:-postgres}
       PGPASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD in .env}
+      PARLEY_DB_NAME: ${PARLEY_DB_NAME:-parley}
+      PARLEY_DB_USER: ${PARLEY_DB_USER:-parley}
+      PARLEY_DB_PASSWORD: ${PARLEY_DB_PASSWORD:?Set PARLEY_DB_PASSWORD in .env}
       AUTHENTIK_DB_NAME: ${AUTHENTIK_DB_NAME:-authentik}
       AUTHENTIK_DB_USER: ${AUTHENTIK_DB_USER:-authentik}
       AUTHENTIK_DB_PASSWORD: ${AUTHENTIK_DB_PASSWORD:?Set AUTHENTIK_DB_PASSWORD in .env}
-    command: ["/bin/sh", "/migrations/ensure-authentik-database.sh"]
+    command: ["/bin/sh", "/migrations/run.sh"]
     depends_on:
       postgres:
         condition: service_healthy

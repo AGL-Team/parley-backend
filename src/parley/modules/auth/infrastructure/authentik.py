@@ -79,7 +79,6 @@ class AuthentikClient:
         *,
         username: str,
         password: str,
-        name: str,
         email: str,
     ) -> tuple[str, dict[str, Any]]:
         """Create and authenticate a user through the fixed enrollment flow."""
@@ -114,7 +113,6 @@ class AuthentikClient:
             flow_url,
             payload={
                 "component": "ak-stage-prompt",
-                "name": name,
                 "email": email,
             },
         )

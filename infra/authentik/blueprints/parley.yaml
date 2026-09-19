@@ -69,19 +69,6 @@ entries:
       order: 1
 
   - model: authentik_stages_prompt.prompt
-    id: enrollment-field-name
-    identifiers:
-      name: default-enrollment-field-name
-    attrs:
-      field_key: name
-      label: Name
-      type: text
-      required: true
-      placeholder: Name
-      placeholder_expression: false
-      order: 0
-
-  - model: authentik_stages_prompt.prompt
     id: enrollment-field-email
     identifiers:
       name: default-enrollment-field-email
@@ -110,7 +97,6 @@ entries:
       name: default-enrollment-prompt-second
     attrs:
       fields:
-        - !KeyOf enrollment-field-name
         - !KeyOf enrollment-field-email
 
   - model: authentik_stages_user_write.userwritestage

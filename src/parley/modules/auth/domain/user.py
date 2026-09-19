@@ -17,7 +17,7 @@ class User:
     """A user known to the Parley domain."""
 
     id: UUID
-    username: str
+    tag: str
     name: str
     email: str
     role: UserRole

@@ -29,8 +29,8 @@ def map_authentik_user(
 
     user = User(
         id=user_id,
-        username=str(authentik_user["username"]),
-        name=str(authentik_user.get("name", "")),
+        tag=f"@{str(authentik_user['username']).lower()}",
+        name="",
         email=str(authentik_user.get("email", "")),
         role=role,
     )

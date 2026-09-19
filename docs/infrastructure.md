@@ -18,11 +18,11 @@ the containers. The `.env` file is intentionally excluded from Git.
 
 The database initialization script is executed only when the PostgreSQL data
 volume is created for the first time. `postgres-migrations` then idempotently
-ensures the Authentik database role and database exist before Authentik starts.
-It does not mount persistent storage or apply application-schema migrations;
-it supports an existing local PostgreSQL volume that was initialized before
-the Authentik role was added. Changing database names or users still requires
-a dedicated migration or recreation of the development volume.
+ensures both database roles and databases exist, then applies the idempotent
+Parley schema migration before the backend and Authentik start. This supports
+an existing local PostgreSQL volume that predates either application role.
+Changing database names or users still requires a dedicated migration or
+recreation of the development volume.
 
 ## Authentik setup
 
