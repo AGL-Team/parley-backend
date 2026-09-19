@@ -62,14 +62,34 @@ services:
     networks:
       - parley_internal
 
+  postgres-migrations:
+    image: postgres:${POSTGRES_VERSION:-17-alpine}
+    restart: "no"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_ADMIN_USER: ${POSTGRES_ADMIN_USER:-postgres}
+      POSTGRES_ADMIN_DB: ${POSTGRES_ADMIN_DB:-postgres}
+      PGPASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD in .env}
+      AUTHENTIK_DB_NAME: ${AUTHENTIK_DB_NAME:-authentik}
+      AUTHENTIK_DB_USER: ${AUTHENTIK_DB_USER:-authentik}
+      AUTHENTIK_DB_PASSWORD: ${AUTHENTIK_DB_PASSWORD:?Set AUTHENTIK_DB_PASSWORD in .env}
+    command: ["/bin/sh", "/migrations/ensure-authentik-database.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./infra/postgres/migrations:/migrations:ro
+    networks:
+      - parley_internal
+
   authentik-server:
     build: *authentik-build
     restart: unless-stopped
     command: server
     environment: *authentik-environment
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-migrations:
+        condition: service_completed_successfully
     ports:
       - "${AUTHENTIK_HTTP_PORT:-9000}:9000"
       - "${AUTHENTIK_HTTPS_PORT:-9443}:9443"
@@ -85,8 +105,8 @@ services:
     command: worker
     environment: *authentik-environment
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-migrations:
+        condition: service_completed_successfully
     volumes:
       - authentik_media:/media
       - authentik_certs:/certs
