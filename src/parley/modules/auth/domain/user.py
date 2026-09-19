@@ -18,5 +18,6 @@ class User:
 
     id: UUID
     username: str
+    name: str
     email: str
     role: UserRole

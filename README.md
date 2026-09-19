@@ -12,6 +12,12 @@ The repository contains the Python API, PostgreSQL, and Authentik infrastructure
 
 See `docs/infrastructure.md` for the service layout and Authentik setup URL.
 
-The authentication module currently exposes a placeholder endpoint at
-`GET /api/v1/auth/me`. It returns `501 Not Implemented` until the Authentik OIDC
-integration is designed.
+The authentication module exposes a headless Authentik integration:
+
+- `POST /api/v1/auth/register` creates and signs in a user;
+- `POST /api/v1/auth/login` signs in an existing user;
+- `GET /api/v1/auth/me` returns the current Parley user.
+
+The backend executes the configured Authentik flows and stores the resulting
+Authentik session in an HttpOnly cookie. Passwords are forwarded to Authentik
+for verification and are never stored by the backend.
