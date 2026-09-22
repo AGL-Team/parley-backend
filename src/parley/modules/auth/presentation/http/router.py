@@ -4,6 +4,7 @@ import asyncio
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 
 from parley.bootstrap.dependencies import get_settings
 from parley.bootstrap.settings import Settings
@@ -67,6 +68,16 @@ def _set_session_cookie(
     response.set_cookie(
         key=settings.auth_session_cookie_name,
         value=session,
+        httponly=True,
+        secure=settings.auth_session_cookie_secure,
+        samesite=settings.auth_session_cookie_samesite,
+        path="/",
+    )
+
+
+def _delete_session_cookie(*, response: Response, settings: Settings) -> None:
+    response.delete_cookie(
+        key=settings.auth_session_cookie_name,
         httponly=True,
         secure=settings.auth_session_cookie_secure,
         samesite=settings.auth_session_cookie_samesite,
@@ -175,6 +186,41 @@ async def register(
 
     _set_session_cookie(response=response, settings=settings, session=session)
     return user
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    responses={
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "description": "Authentication service unavailable"
+        },
+    },
+)
+async def logout(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Response:
+    """Invalidate the Authentik session and remove the Parley session cookie."""
+
+    session = request.cookies.get(settings.auth_session_cookie_name)
+    response: Response = Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    if session is not None:
+        try:
+            await asyncio.to_thread(_client(settings).logout, session=session)
+        except AuthentikUnavailableError:
+            response = JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"detail": "Authentication service is unavailable"},
+            )
+        except AuthentikError:
+            # An absent or already invalid Authentik session is already logged out.
+            pass
+
+    _delete_session_cookie(response=response, settings=settings)
+    return response
 
 
 @router.get(

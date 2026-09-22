@@ -134,6 +134,17 @@ class AuthentikClient:
             raise AuthentikAuthenticationError("Session is not authenticated")
         return user
 
+    def logout(self, *, session: str) -> None:
+        """Invalidate an Authentik session through its default logout flow."""
+
+        opener = build_opener()
+        challenge = self._request(
+            opener,
+            self._flow_url("default-invalidation-flow"),
+            headers={"Cookie": f"{AUTHENTIK_SESSION_COOKIE}={session}"},
+        )
+        self._require_success(challenge, AuthentikAuthenticationError)
+
     def _session_and_user(
         self,
         opener: Any,

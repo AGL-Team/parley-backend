@@ -16,6 +16,7 @@ The authentication module exposes a headless Authentik integration:
 
 - `POST /api/v1/auth/register` creates and signs in a user with a unique `@tag`;
 - `POST /api/v1/auth/login` signs in an existing user by `@tag` or email;
+- `POST /api/v1/auth/logout` ends the Authentik session and removes the session cookie;
 - `GET /api/v1/auth/me` returns the current Parley user.
 
 The backend executes the configured Authentik flows and stores the resulting
