@@ -2,14 +2,17 @@
 
 from unittest import TestCase
 
-from parley.modules.auth.application.identity import map_authentik_user
+from parley.modules.auth.application.identity import (
+    IdentityAccessDeniedError,
+    map_authentik_user,
+)
 from parley.modules.auth.domain import UserRole
 
 
 class IdentityMappingTests(TestCase):
     def test_keeps_external_subject_separate_from_local_user_id(self) -> None:
         user, identity = map_authentik_user(
-            issuer="http://localhost:9000/application/o/parley/",
+            issuer="authentik:parley",
             authentik_user={
                 "uid": "authentik-subject",
                 "username": "alice",
@@ -27,7 +30,7 @@ class IdentityMappingTests(TestCase):
 
     def test_maps_admin_group_to_admin_role(self) -> None:
         user, _identity = map_authentik_user(
-            issuer="http://localhost:9000/application/o/parley/",
+            issuer="authentik:parley",
             authentik_user={
                 "uid": "admin-subject",
                 "username": "admin",
@@ -38,3 +41,15 @@ class IdentityMappingTests(TestCase):
         )
 
         self.assertEqual(user.role, UserRole.ADMIN)
+
+    def test_rejects_identity_without_parley_group(self) -> None:
+        with self.assertRaises(IdentityAccessDeniedError):
+            map_authentik_user(
+                issuer="authentik:parley",
+                authentik_user={
+                    "uid": "external-subject",
+                    "username": "outsider",
+                    "email": "outsider@example.com",
+                    "groups": [],
+                },
+            )

@@ -9,24 +9,20 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
+from parley.modules.auth.application.identity_provider import (
+    AuthenticationRejectedError,
+    IdentityProviderError,
+    IdentityProviderUnavailableError,
+    RegistrationRejectedError,
+)
+
 
 AUTHENTIK_SESSION_COOKIE = "authentik_session"
 
-
-class AuthentikError(Exception):
-    """Base error raised while communicating with Authentik."""
-
-
-class AuthentikAuthenticationError(AuthentikError):
-    """The supplied credentials were not accepted."""
-
-
-class AuthentikRegistrationError(AuthentikError):
-    """The supplied registration data was not accepted."""
-
-
-class AuthentikUnavailableError(AuthentikError):
-    """Authentik could not serve the request."""
+AuthentikError = IdentityProviderError
+AuthentikAuthenticationError = AuthenticationRejectedError
+AuthentikRegistrationError = RegistrationRejectedError
+AuthentikUnavailableError = IdentityProviderUnavailableError
 
 
 class AuthentikClient:
@@ -141,6 +137,17 @@ class AuthentikClient:
         challenge = self._request(
             opener,
             self._flow_url("default-invalidation-flow"),
+            headers={"Cookie": f"{AUTHENTIK_SESSION_COOKIE}={session}"},
+        )
+        self._require_success(challenge, AuthentikAuthenticationError)
+
+    def rollback_registration(self, *, session: str) -> None:
+        """Delete the user created by a registration that could not be committed."""
+
+        opener = build_opener()
+        challenge = self._request(
+            opener,
+            self._flow_url("parley-registration-rollback-flow"),
             headers={"Cookie": f"{AUTHENTIK_SESSION_COOKIE}={session}"},
         )
         self._require_success(challenge, AuthentikAuthenticationError)

@@ -23,6 +23,11 @@ The backend executes the configured Authentik flows and stores the resulting
 Authentik session in an HttpOnly cookie. Passwords are forwarded to Authentik
 for verification and are never stored by the backend.
 
+The MVP intentionally uses server-side sessions only. OAuth2/OIDC and JWT
+validation are not configured. Registration opens the Parley database
+transaction before creating an Authentik account and compensates a failed
+database commit by deleting the newly created Authentik account.
+
 Authentik owns the unique username behind the public `@tag`, email, password,
 and session. Parley stores the domain user's `name` in its own `users` table and
 links it to Authentik through `external_identities`.

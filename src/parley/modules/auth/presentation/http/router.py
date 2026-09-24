@@ -1,25 +1,29 @@
 """HTTP endpoints exposed by the authentication module."""
 
 import asyncio
-from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 
-from parley.bootstrap.dependencies import get_settings
+from parley.api.dependencies import (
+    AuthenticatedUser,
+    AuthentikClientDependency,
+    SettingsDependency,
+    UserRepositoryDependency,
+)
 from parley.bootstrap.settings import Settings
-from parley.modules.auth.application.users import resolve_user
-from parley.modules.auth.infrastructure.authentik import (
-    AuthentikAuthenticationError,
-    AuthentikClient,
-    AuthentikError,
-    AuthentikRegistrationError,
-    AuthentikUnavailableError,
+from parley.modules.auth.application.identity import IdentityAccessDeniedError
+from parley.modules.auth.application.identity_provider import (
+    AuthenticationRejectedError,
+    IdentityProviderError,
+    IdentityProviderUnavailableError,
+    RegistrationRejectedError,
 )
-from parley.modules.auth.infrastructure.postgres import (
-    PostgresUserRepository,
-    UserRepositoryError,
+from parley.modules.auth.application.registration import (
+    RegistrationConsistencyError,
+    register_user,
 )
+from parley.modules.auth.application.users import UserRepositoryError, resolve_user
 from parley.modules.auth.presentation.http.schemas import (
     LoginRequest,
     RegisterRequest,
@@ -28,35 +32,6 @@ from parley.modules.auth.presentation.http.schemas import (
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-def _client(settings: Settings) -> AuthentikClient:
-    return AuthentikClient(api_url=str(settings.authentik_api_url))
-
-
-def _repository(settings: Settings) -> PostgresUserRepository:
-    return PostgresUserRepository(
-        host=settings.parley_db_host,
-        port=settings.parley_db_port,
-        database=settings.parley_db_name,
-        user=settings.parley_db_user,
-        password=settings.parley_db_password.get_secret_value(),
-    )
-
-
-def _resolve_user_response(
-    *,
-    settings: Settings,
-    authentik_user: dict[str, Any],
-    registration_name: str | None = None,
-) -> UserResponse:
-    user = resolve_user(
-        issuer=str(settings.authentik_issuer),
-        authentik_user=authentik_user,
-        repository=_repository(settings),
-        registration_name=registration_name,
-    )
-    return UserResponse.from_domain(user)
 
 
 def _set_session_cookie(
@@ -90,6 +65,7 @@ def _delete_session_cookie(*, response: Response, settings: Settings) -> None:
     response_model=UserResponse,
     responses={
         status.HTTP_401_UNAUTHORIZED: {"description": "Invalid credentials"},
+        status.HTTP_403_FORBIDDEN: {"description": "User has no Parley access group"},
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "description": "Authentication or user storage unavailable"
         },
@@ -98,22 +74,24 @@ def _delete_session_cookie(*, response: Response, settings: Settings) -> None:
 async def login(
     credentials: LoginRequest,
     response: Response,
-    settings: Annotated[Settings, Depends(get_settings)],
+    settings: SettingsDependency,
+    identity_provider: AuthentikClientDependency,
+    repository: UserRepositoryDependency,
 ) -> UserResponse:
     """Authenticate through Authentik without exposing the Authentik UI."""
 
     try:
         session, authentik_user = await asyncio.to_thread(
-            _client(settings).login,
+            identity_provider.login,
             username=credentials.login,
             password=credentials.password,
         )
-    except AuthentikUnavailableError as error:
+    except IdentityProviderUnavailableError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service is unavailable",
         ) from error
-    except AuthentikError as error:
+    except IdentityProviderError as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid tag, email, or password",
@@ -121,10 +99,17 @@ async def login(
 
     try:
         user = await asyncio.to_thread(
-            _resolve_user_response,
-            settings=settings,
+            resolve_user,
+            issuer=settings.authentik_identity_namespace,
             authentik_user=authentik_user,
+            repository=repository,
         )
+        response_user = UserResponse.from_domain(user)
+    except IdentityAccessDeniedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User has no access to Parley",
+        ) from error
     except UserRepositoryError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -132,7 +117,7 @@ async def login(
         ) from error
 
     _set_session_cookie(response=response, settings=settings, session=session)
-    return user
+    return response_user
 
 
 @router.post(
@@ -140,6 +125,7 @@ async def login(
     status_code=status.HTTP_201_CREATED,
     response_model=UserResponse,
     responses={
+        status.HTTP_403_FORBIDDEN: {"description": "User has no Parley access group"},
         status.HTTP_409_CONFLICT: {"description": "Registration rejected"},
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "description": "Authentication or user storage unavailable"
@@ -149,35 +135,43 @@ async def login(
 async def register(
     registration: RegisterRequest,
     response: Response,
-    settings: Annotated[Settings, Depends(get_settings)],
+    settings: SettingsDependency,
+    identity_provider: AuthentikClientDependency,
+    repository: UserRepositoryDependency,
 ) -> UserResponse:
     """Register through Authentik without exposing the Authentik UI."""
 
     try:
-        session, authentik_user = await asyncio.to_thread(
-            _client(settings).register,
+        session, user = await asyncio.to_thread(
+            register_user,
+            issuer=settings.authentik_identity_namespace,
             username=registration.tag[1:],
             password=registration.password,
             email=registration.email,
+            name=registration.name,
+            identity_provider=identity_provider,
+            repository=repository,
         )
-    except AuthentikUnavailableError as error:
+    except IdentityProviderUnavailableError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service is unavailable",
         ) from error
-    except (AuthentikRegistrationError, AuthentikAuthenticationError) as error:
+    except (RegistrationRejectedError, AuthenticationRejectedError) as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Tag or email is already used or invalid",
         ) from error
-
-    try:
-        user = await asyncio.to_thread(
-            _resolve_user_response,
-            settings=settings,
-            authentik_user=authentik_user,
-            registration_name=registration.name,
-        )
+    except IdentityAccessDeniedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User has no access to Parley",
+        ) from error
+    except RegistrationConsistencyError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Registration could not be completed or rolled back",
+        ) from error
     except UserRepositoryError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -185,7 +179,7 @@ async def register(
         ) from error
 
     _set_session_cookie(response=response, settings=settings, session=session)
-    return user
+    return UserResponse.from_domain(user)
 
 
 @router.post(
@@ -200,7 +194,8 @@ async def register(
 )
 async def logout(
     request: Request,
-    settings: Annotated[Settings, Depends(get_settings)],
+    settings: SettingsDependency,
+    identity_provider: AuthentikClientDependency,
 ) -> Response:
     """Invalidate the Authentik session and remove the Parley session cookie."""
 
@@ -209,13 +204,13 @@ async def logout(
 
     if session is not None:
         try:
-            await asyncio.to_thread(_client(settings).logout, session=session)
-        except AuthentikUnavailableError:
+            await asyncio.to_thread(identity_provider.logout, session=session)
+        except IdentityProviderUnavailableError:
             response = JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={"detail": "Authentication service is unavailable"},
             )
-        except AuthentikError:
+        except IdentityProviderError:
             # An absent or already invalid Authentik session is already logged out.
             pass
 
@@ -228,48 +223,15 @@ async def logout(
     response_model=UserResponse,
     responses={
         status.HTTP_401_UNAUTHORIZED: {"description": "Not authenticated"},
+        status.HTTP_403_FORBIDDEN: {"description": "User has no Parley access group"},
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "description": "Authentication or user storage unavailable"
         },
     },
 )
 async def get_current_user(
-    request: Request,
-    settings: Annotated[Settings, Depends(get_settings)],
+    user: AuthenticatedUser,
 ) -> UserResponse:
-    """Return the Parley user represented by the Authentik session."""
+    """Return the user resolved by the shared authentication dependency."""
 
-    session = request.cookies.get(settings.auth_session_cookie_name)
-    if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
-
-    try:
-        authentik_user = await asyncio.to_thread(
-            _client(settings).get_current_user,
-            session=session,
-        )
-    except AuthentikUnavailableError as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Authentication service is unavailable",
-        ) from error
-    except AuthentikError as error:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        ) from error
-
-    try:
-        return await asyncio.to_thread(
-            _resolve_user_response,
-            settings=settings,
-            authentik_user=authentik_user,
-        )
-    except UserRepositoryError as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="User storage is unavailable",
-        ) from error
+    return UserResponse.from_domain(user)

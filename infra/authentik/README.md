@@ -6,7 +6,7 @@ It creates:
 - the `parley-users` and `parley-admins` groups;
 - the two-step enrollment flow;
 - automatic membership of newly registered users in `parley-users`;
-- the Parley OAuth2/OIDC provider and application.
+- the backend-only rollback flow used when registration cannot be committed.
 
 The blueprint intentionally does not contain users, passwords, database contents, private keys,
 or the Authentik secret key. Those values must not be committed to Git.
@@ -22,5 +22,5 @@ The worker mounts `infra/authentik/blueprints` at `/blueprints/custom` and appli
 blueprint automatically. Application users are not migrated; they register again or must be
 migrated separately with a database backup.
 
-For non-local environments, add their callback URLs to `redirect_uris` in the blueprint and
-change the public issuer URL in `.env`.
+`AUTHENTIK_IDENTITY_NAMESPACE` is a stable internal namespace for linking Authentik users to
+Parley users. Keep it unchanged when moving the same installation between machines.

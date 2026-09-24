@@ -8,6 +8,10 @@ from parley.modules.auth.application.identity import map_authentik_user
 from parley.modules.auth.domain import ExternalIdentity, User
 
 
+class UserRepositoryError(Exception):
+    """Parley user persistence is unavailable."""
+
+
 class UserRepository(Protocol):
     """Persistence required by the authentication application service."""
 

@@ -6,6 +6,10 @@ from uuid import NAMESPACE_URL, uuid5
 from parley.modules.auth.domain import ExternalIdentity, User, UserRole
 
 
+class IdentityAccessDeniedError(Exception):
+    """The external identity is not assigned to a Parley access group."""
+
+
 def map_authentik_user(
     *,
     issuer: str,
@@ -21,11 +25,12 @@ def map_authentik_user(
         for group in authentik_user.get("groups", [])
         if isinstance(group, dict) and "name" in group
     }
-    role = (
-        UserRole.ADMIN
-        if "parley-admins" in group_names
-        else UserRole.USER
-    )
+    if "parley-admins" in group_names:
+        role = UserRole.ADMIN
+    elif "parley-users" in group_names:
+        role = UserRole.USER
+    else:
+        raise IdentityAccessDeniedError("Identity has no Parley access group")
 
     user = User(
         id=user_id,

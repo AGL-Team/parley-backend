@@ -27,7 +27,6 @@ def _request(cookie: str | None = None) -> Request:
 
 def _settings() -> SimpleNamespace:
     return SimpleNamespace(
-        authentik_api_url="http://authentik:9000/api/v3/",
         auth_session_cookie_name="parley_session",
         auth_session_cookie_secure=False,
         auth_session_cookie_samesite="lax",
@@ -57,16 +56,36 @@ class AuthentikClientLogoutTests(TestCase):
             },
         )
 
+    def test_registration_rollback_executes_dedicated_unenrollment_flow(self) -> None:
+        client = AuthentikClient(api_url="http://authentik:9000/api/v3/")
+
+        with patch.object(
+            client,
+            "_request",
+            return_value={
+                "component": "xak-flow-redirect",
+                "final_redirect": "/",
+            },
+        ) as request:
+            client.rollback_registration(session="session-value")
+
+        request.assert_called_once_with(
+            ANY,
+            "http://authentik:9000/api/v3/flows/executor/"
+            "parley-registration-rollback-flow/?query=",
+            headers={
+                "Cookie": f"{AUTHENTIK_SESSION_COOKIE}=session-value",
+            },
+        )
+
 
 class LogoutEndpointTests(TestCase):
     def test_logout_invalidates_remote_session_and_deletes_cookie(self) -> None:
         client = Mock()
 
-        with patch(
-            "parley.modules.auth.presentation.http.router._client",
-            return_value=client,
-        ):
-            response = asyncio.run(logout(_request("session-value"), _settings()))
+        response = asyncio.run(
+            logout(_request("session-value"), _settings(), client)
+        )
 
         client.logout.assert_called_once_with(session="session-value")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -74,12 +93,10 @@ class LogoutEndpointTests(TestCase):
         self.assertIn("Max-Age=0", response.headers["set-cookie"])
 
     def test_logout_without_cookie_is_idempotent(self) -> None:
-        with patch(
-            "parley.modules.auth.presentation.http.router._client"
-        ) as client_factory:
-            response = asyncio.run(logout(_request(), _settings()))
+        client = Mock()
+        response = asyncio.run(logout(_request(), _settings(), client))
 
-        client_factory.assert_not_called()
+        client.logout.assert_not_called()
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertIn("Max-Age=0", response.headers["set-cookie"])
 
@@ -87,11 +104,9 @@ class LogoutEndpointTests(TestCase):
         client = Mock()
         client.logout.side_effect = AuthentikUnavailableError("unavailable")
 
-        with patch(
-            "parley.modules.auth.presentation.http.router._client",
-            return_value=client,
-        ):
-            response = asyncio.run(logout(_request("session-value"), _settings()))
+        response = asyncio.run(
+            logout(_request("session-value"), _settings(), client)
+        )
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertIn("Max-Age=0", response.headers["set-cookie"])

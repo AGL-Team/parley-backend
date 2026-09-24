@@ -8,8 +8,8 @@ from uuid import UUID
 class ExternalIdentity:
     """Stable link between an external identity provider and a local user.
 
-    ``subject`` is intentionally stored as text. Authentik can emit an opaque,
-    hashed ``sub`` claim, so it must not be treated as the local user UUID.
+    ``subject`` is intentionally stored as text. Authentik emits an opaque user
+    identifier, so it must not be treated as the local user UUID.
     The persistence layer must enforce uniqueness for ``(issuer, subject)``.
     """
 

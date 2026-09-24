@@ -28,7 +28,7 @@ class UserResolutionTests(TestCase):
         repository = FakeUserRepository()
 
         user = resolve_user(
-            issuer="http://localhost:9000/application/o/parley/",
+            issuer="authentik:parley",
             authentik_user={
                 "uid": "external-id",
                 "username": "alice_1",
@@ -46,26 +46,26 @@ class UserResolutionTests(TestCase):
     def test_existing_parley_name_wins_over_authentik(self) -> None:
         repository = FakeUserRepository()
         first = resolve_user(
-            issuer="http://localhost:9000/application/o/parley/",
+            issuer="authentik:parley",
             authentik_user={
                 "uid": "external-id",
                 "username": "alice_1",
                 "name": "Ignored",
                 "email": "alice@example.com",
-                "groups": [],
+                "groups": [{"name": "parley-users"}],
             },
             repository=repository,
             registration_name="Parley Name",
         )
 
         second = resolve_user(
-            issuer="http://localhost:9000/application/o/parley/",
+            issuer="authentik:parley",
             authentik_user={
                 "uid": "external-id",
                 "username": "alice_1",
                 "name": "Changed in Authentik",
                 "email": "alice@example.com",
-                "groups": [],
+                "groups": [{"name": "parley-users"}],
             },
             repository=repository,
         )
